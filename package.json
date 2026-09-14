@@ -1,16 +1,41 @@
 {
-  "name": "twitch-chat-duplicator",
+  "name": "multichat",
   "version": "1.0.0",
-  "main": "server.js",
+  "description": "Twitch + YouTube chat overlay",
+  "main": "main.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "electron .",
+    "build": "electron-builder --win"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "emotettv": "^1.0.2",
-    "express": "^4.19.2",
-    "socket.io": "^4.7.5",
     "tmi.js": "^1.8.5",
-    "youtube-chat-next": "^3.1.0"
+    "youtube-chat-next": "*"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.example.multichat",
+    "productName": "Multichat",
+    "asar": false,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "package.json",
+      "node_modules/**/*",
+      ".env"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "oneClick": false
+    }
   }
 }
