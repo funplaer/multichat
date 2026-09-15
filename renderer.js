@@ -14,14 +14,12 @@ const LOGOS = {
     `
 };
 
-// Проверка preload
 if (!window.chatAPI) {
     console.error('chatAPI не найден — preload не загрузился!');
 } else {
     console.log('chatAPI OK');
 }
 
-// Кнопки окна
 document.getElementById('btn-close')?.addEventListener('click', () => {
     window.chatAPI?.closeWindow();
 });
@@ -30,7 +28,6 @@ document.getElementById('btn-min')?.addEventListener('click', () => {
     window.chatAPI?.minimizeWindow();
 });
 
-// Приём сообщений
 window.chatAPI?.onMessage((data) => {
     if (!systemMessageRemoved) {
         const sysMsg = chatContainer.querySelector('.system-message');
@@ -41,14 +38,33 @@ window.chatAPI?.onMessage((data) => {
     const messageEl = document.createElement('div');
     messageEl.className = 'message';
 
+    // Логотип
     const logoWrap = document.createElement('span');
     logoWrap.innerHTML = LOGOS[data.platform] || LOGOS.twitch;
 
+    // Баджи (для Twitch)
+    const badgesEl = document.createElement('span');
+    badgesEl.className = 'badges';
+    if (Array.isArray(data.badges)) {
+        for (const badge of data.badges) {
+            if (badge.url) {
+                const img = document.createElement('img');
+                img.src = badge.url;
+                img.alt = badge.alt || '';
+                img.className = 'twitch-badge';
+                img.onerror = () => img.remove();
+                badgesEl.appendChild(img);
+            }
+        }
+    }
+
+    // Ник
     const usernameEl = document.createElement('span');
     usernameEl.className = 'username';
     usernameEl.style.color = data.color;
     usernameEl.textContent = data.username + ':';
 
+    // Текст сообщения
     const textEl = document.createElement('span');
     textEl.className = 'text';
 
@@ -56,16 +72,18 @@ window.chatAPI?.onMessage((data) => {
         for (const part of data.parts) {
             if (part.type === 'text') {
                 textEl.appendChild(document.createTextNode(part.value));
-            } else if (part.type === 'emoji' && part.url) {
-                const img = document.createElement('img');
-                img.src = part.url;
-                img.alt = part.alt || '';
-                img.className = 'yt-emoji';
-                img.onerror = () => {
-                    const fallback = document.createTextNode(part.alt || '');
-                    img.replaceWith(fallback);
-                };
-                textEl.appendChild(img);
+            } else if (part.type === 'emote' || part.type === 'emoji') {
+                if (part.url) {
+                    const img = document.createElement('img');
+                    img.src = part.url;
+                    img.alt = part.alt || '';
+                    img.className = 'chat-emote';
+                    img.onerror = () => {
+                        const fallback = document.createTextNode(part.alt || '');
+                        img.replaceWith(fallback);
+                    };
+                    textEl.appendChild(img);
+                }
             }
         }
     } else {
@@ -73,6 +91,7 @@ window.chatAPI?.onMessage((data) => {
     }
 
     messageEl.appendChild(logoWrap.firstElementChild);
+    if (badgesEl.children.length > 0) messageEl.appendChild(badgesEl);
     messageEl.appendChild(usernameEl);
     messageEl.appendChild(textEl);
     chatContainer.appendChild(messageEl);

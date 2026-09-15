@@ -21,7 +21,6 @@
             flex-direction: column;
         }
 
-        /* Верхняя панель для перетаскивания и кнопок */
         #titlebar {
             height: 28px;
             background: rgba(24, 24, 27, 0.75);
@@ -117,6 +116,28 @@
             flex-shrink: 0;
         }
 
+        /* Баджи Twitch */
+        .badges {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            flex-shrink: 0;
+        }
+
+        .twitch-badge {
+            width: 18px;
+            height: 18px;
+            vertical-align: middle;
+        }
+
+        /* Смайлики и эмодзи */
+        .chat-emote {
+            width: 24px;
+            height: 24px;
+            vertical-align: middle;
+            margin: 0 1px;
+        }
+
         .message .username {
             font-weight: 700;
             margin-right: 2px;
@@ -126,13 +147,6 @@
             color: #efeff1;
             display: inline;
             word-break: break-word;
-        }
-
-        .yt-emoji {
-            width: 20px;
-            height: 20px;
-            vertical-align: middle;
-            margin: 0 1px;
         }
 
         .system-message {
