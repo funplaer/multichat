@@ -28,6 +28,26 @@ document.getElementById('btn-min')?.addEventListener('click', () => {
     window.chatAPI?.minimizeWindow();
 });
 
+// ---------- СОЗДАНИЕ СМАЙЛИКА ----------
+function createEmoteImg(part) {
+    const img = document.createElement('img');
+    img.src = part.url;
+    img.alt = part.alt || '';
+    img.className = 'chat-emote';
+
+    if (part.aspectRatio && part.aspectRatio !== 1) {
+        img.style.aspectRatio = String(part.aspectRatio);
+    }
+
+    img.onerror = () => {
+        const fallback = document.createTextNode(part.alt || '');
+        img.replaceWith(fallback);
+    };
+
+    return img;
+}
+
+// ---------- РЕНДЕР ОДНОГО СООБЩЕНИЯ ----------
 window.chatAPI?.onMessage((data) => {
     if (!systemMessageRemoved) {
         const sysMsg = chatContainer.querySelector('.system-message');
@@ -42,7 +62,7 @@ window.chatAPI?.onMessage((data) => {
     const logoWrap = document.createElement('span');
     logoWrap.innerHTML = LOGOS[data.platform] || LOGOS.twitch;
 
-    // Баджи (для Twitch)
+    // Баджи
     const badgesEl = document.createElement('span');
     badgesEl.className = 'badges';
     if (Array.isArray(data.badges)) {
@@ -69,22 +89,60 @@ window.chatAPI?.onMessage((data) => {
     textEl.className = 'text';
 
     if (Array.isArray(data.parts) && data.parts.length > 0) {
+        // Ссылка на последний добавленный в textEl элемент-emote (не обёртку, а сам img/stack)
+        let lastEmoteNode = null;
+
         for (const part of data.parts) {
             if (part.type === 'text') {
                 textEl.appendChild(document.createTextNode(part.value));
-            } else if (part.type === 'emote' || part.type === 'emoji') {
-                if (part.url) {
-                    const img = document.createElement('img');
-                    img.src = part.url;
-                    img.alt = part.alt || '';
-                    img.className = 'chat-emote';
-                    img.onerror = () => {
-                        const fallback = document.createTextNode(part.alt || '');
-                        img.replaceWith(fallback);
-                    };
-                    textEl.appendChild(img);
-                }
+                // Текст разрывает "цепочку" — следующий zero-width смайлик
+                // не должен накладываться на что-то через текст
+                lastEmoteNode = null;
+                continue;
             }
+
+            if (part.type !== 'emote' && part.type !== 'emoji') continue;
+            if (!part.url) continue;
+
+            const img = createEmoteImg(part);
+
+            // === ZERO-WIDTH (OVERLAY) ===
+            if (part.zeroWidth && lastEmoteNode) {
+                // Если предыдущий смайлик уже в emote-stack — просто добавляем слой туда
+                if (lastEmoteNode.classList.contains('emote-stack')) {
+                    img.style.position = 'absolute';
+                    img.style.top = '0';
+                    img.style.left = '0';
+                    img.style.width = '100%';
+                    img.style.height = '100%';
+                    img.style.margin = '0';
+                    img.style.pointerEvents = 'none';
+                    lastEmoteNode.appendChild(img);
+                } else {
+                    // Иначе — оборачиваем предыдущий смайлик в stack
+                    const stack = document.createElement('span');
+                    stack.className = 'emote-stack';
+
+                    lastEmoteNode.replaceWith(stack);
+                    stack.appendChild(lastEmoteNode);
+
+                    img.style.position = 'absolute';
+                    img.style.top = '0';
+                    img.style.left = '0';
+                    img.style.width = '100%';
+                    img.style.height = '100%';
+                    img.style.margin = '0';
+                    img.style.pointerEvents = 'none';
+
+                    stack.appendChild(img);
+                    lastEmoteNode = stack;
+                }
+                continue;
+            }
+
+            // Обычный смайлик — добавляем как есть
+            textEl.appendChild(img);
+            lastEmoteNode = img;
         }
     } else {
         textEl.textContent = data.message || '';
@@ -101,3 +159,9 @@ window.chatAPI?.onMessage((data) => {
     const messages = chatContainer.querySelectorAll('.message');
     if (messages.length > 200) messages[0].remove();
 });
+
+
+
+
+
+//UC8h4WuhsHwArEFSV0M5DXdw

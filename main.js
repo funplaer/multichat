@@ -63,8 +63,9 @@ let mainWindow = null;
 
 
 // ---------- КАРТЫ СМАЙЛИКОВ И БАДЖЕЙ ----------
-let emoteMap = new Map();   // emoteId -> url
-let badgeMap = new Map();   // "set:version" -> url
+let emoteMap = new Map();      // Twitch emoteId -> url
+let badgeMap = new Map();      // Twitch "set:version" -> url
+let sevenTVMap = new Map();  // 7TV "emoteName" -> url
 
 
 // ---------- AUTH ----------
@@ -146,7 +147,7 @@ async function setupAuth() {
 }
 
 
-// ---------- ЗАГРУЗКА АССЕТОВ ----------
+// ---------- ЗАГРУЗКА TWITCH АССЕТОВ ----------
 async function loadTwitchAssets() {
     if (!apiClient) return;
 
@@ -162,7 +163,6 @@ async function loadTwitchAssets() {
 
         const broadcasterId = user.id;
 
-
         // ---------- GLOBAL EMOTES ----------
         const globalEmotes = await apiClient.chat.getGlobalEmotes();
 
@@ -172,7 +172,6 @@ async function loadTwitchAssets() {
                 emote.getImageUrl(1.0)
             );
         }
-
 
         // ---------- CHANNEL EMOTES ----------
         const channelEmotes =
@@ -186,9 +185,8 @@ async function loadTwitchAssets() {
         }
 
         console.log(
-            `Загружено смайликов: ${emoteMap.size}`
+            `Загружено смайликов Twitch: ${emoteMap.size}`
         );
-
 
         // ---------- GLOBAL BADGES ----------
         const globalBadges =
@@ -202,7 +200,6 @@ async function loadTwitchAssets() {
                 );
             }
         }
-
 
         // ---------- CHANNEL BADGES ----------
         const channelBadges =
@@ -228,6 +225,67 @@ async function loadTwitchAssets() {
             'loadTwitchAssets ошибка:',
             e.message
         );
+    }
+}
+
+
+// ---------- ЗАГРУЗКА 7TV СМАЙЛИКОВ ----------
+async function load7TVAssets() {
+    try {
+        const addEmote = (emote) => {
+    const data = emote.data || {};
+    const width = data.width || 32;
+    const height = data.height || 32;
+    const aspectRatio = data.aspect_ratio || (width / height) || 1;
+
+    // Zero-width определяется по visibility_simple, а не по flags
+    const visibility = data.visibility_simple || emote.visibility_simple || [];
+    const zeroWidth = visibility.includes('ZERO_WIDTH');
+
+    if (zeroWidth) {
+        console.log(`7TV ZERO-WIDTH: ${emote.name}`);
+    }
+
+    const url = `https://cdn.7tv.app/emote/${emote.id}/2x.webp`;
+
+    sevenTVMap.set(emote.name, {
+        url,
+        width,
+        height,
+        aspectRatio,
+        zeroWidth
+    });
+};
+
+        // --- Глобальные смайлики 7TV ---
+        const globalRes = await fetch('https://7tv.io/v3/emote-sets/global');
+        if (globalRes.ok) {
+            const globalData = await globalRes.json();
+            for (const emote of globalData.emotes || []) {
+                addEmote(emote);
+            }
+        }
+        console.log(`7TV: глобальных смайликов — ${sevenTVMap.size}`);
+
+        // --- Канальные смайлики 7TV ---
+        if (apiClient) {
+            const user = await apiClient.users.getUserByName(TWITCH_CHANNEL);
+            if (user) {
+                const channelRes = await fetch(
+                    `https://7tv.io/v3/users/twitch/${user.id}`
+                );
+                if (channelRes.ok) {
+                    const channelData = await channelRes.json();
+                    const emotes = channelData.emote_set?.emotes || [];
+                    for (const emote of emotes) {
+                        addEmote(emote);
+                    }
+                }
+            }
+        }
+        console.log(`7TV: всего смайликов — ${sevenTVMap.size}`);
+    } catch (e) {
+        console.warn('7TV: ошибка загрузки смайликов —', e.message);
     }
 }
 
@@ -310,6 +368,65 @@ function buildTwitchParts(parts) {
 }
 
 
+// ---------- ПОДСТАНОВКА 7TV СМАЙЛИКОВ В ТЕКСТ ----------
+// Проходим по текстовым частям и заменяем слова, найденные в sevenTVMap
+function apply7TVEmotes(parts) {
+    if (!Array.isArray(parts) || parts.length === 0) {
+        return parts;
+    }
+
+    const result = [];
+
+    for (const part of parts) {
+        if (part.type !== 'text' || !part.value) {
+            result.push(part);
+            continue;
+        }
+
+        const tokens = part.value.split(/(\s+)/);
+        let textBuffer = '';
+
+        for (const token of tokens) {
+            if (/^\s+$/.test(token) || token === '') {
+                textBuffer += token;
+                continue;
+            }
+
+            const tv = sevenTVMap.get(token);
+
+if (tv) {
+    // ЛОГ
+    console.log(`7TV MATCH: ${token} | zeroWidth=${tv.zeroWidth}`);
+
+    if (textBuffer) {
+        result.push({ type: 'text', value: textBuffer });
+        textBuffer = '';
+    }
+
+    result.push({
+        type: 'emote',
+        url: tv.url,
+        alt: token,
+        aspectRatio: tv.aspectRatio,
+        naturalWidth: tv.width,
+        naturalHeight: tv.height,
+        zeroWidth: tv.zeroWidth
+    });
+
+            } else {
+                textBuffer += token;
+            }
+        }
+
+        if (textBuffer) {
+            result.push({ type: 'text', value: textBuffer });
+        }
+    }
+
+    return result;
+}
+
+
 // ---------- ПАРСИНГ TWITCH BADGES ----------
 function buildTwitchBadges(badges) {
     if (!badges) {
@@ -318,18 +435,7 @@ function buildTwitchBadges(badges) {
 
     const result = [];
 
-    /*
-     * Twurple возвращает badges примерно в таком виде:
-     *
-     * {
-     *     subscriber: "12",
-     *     moderator: "1",
-     *     broadcaster: "1"
-     * }
-     */
-
     for (const [setId, version] of Object.entries(badges)) {
-
         const url = badgeMap.get(
             `${setId}:${version}`
         );
@@ -350,7 +456,6 @@ function buildTwitchBadges(badges) {
 let eventSubListener = null;
 
 async function startTwitch() {
-
     if (
         !apiClient ||
         !authProvider ||
@@ -365,7 +470,6 @@ async function startTwitch() {
     }
 
     try {
-
         const broadcaster =
             await apiClient.users.getUserByName(
                 TWITCH_CHANNEL
@@ -379,62 +483,37 @@ async function startTwitch() {
             return;
         }
 
-
         eventSubListener =
             new EventSubWsListener({
                 apiClient
             });
 
-
-        /*
-         * Слушаем чат канала.
-         *
-         * broadcaster.id =
-         * канал, который слушаем
-         *
-         * authenticatedUserId =
-         * пользователь, от имени которого
-         * создаётся подписка
-         */
         eventSubListener.onChannelChatMessage(
             broadcaster.id,
             authenticatedUserId,
 
             (event) => {
-                console.log('TWITCH MESSAGE:');
-console.log('messageText:', event.messageText);
-console.log('messageParts:', JSON.stringify(event.messageParts, null, 2));
-
                 if (!mainWindow) {
                     return;
                 }
 
                 try {
+                    const messageText = event.messageText || '';
 
-                    /*
-                     * В Twurple это уже готовые поля:
-                     *
-                     * event.messageText
-                     * event.messageParts
-                     * event.badges
-                     */
-                    const messageText =
-                        event.messageText || '';
+                    // 1) Собираем Twitch-части
+                    const twitchParts = buildTwitchParts(event.messageParts);
 
-                    const parts =
-                        buildTwitchParts(
-                            event.messageParts
-                        );
+                    // 2) Прогоняем через 7TV-фильтр
+                    const parts = apply7TVEmotes(twitchParts);
 
-                    const badges =
-                        buildTwitchBadges(
-                            event.badges
-                        );
+                    // 3) Fallback: если parts пуст, но текст есть — отдаём текст
+                    const finalParts = parts.length > 0
+                        ? parts
+                        : [{ type: 'text', value: messageText }];
 
+                    // 4) Баджи
+                    const badges = buildTwitchBadges(event.badges);
 
-                    /*
-                     * Отправляем всё в renderer.
-                     */
                     mainWindow.webContents.send(
                         'chat-message',
                         {
@@ -447,7 +526,7 @@ console.log('messageParts:', JSON.stringify(event.messageParts, null, 2));
 
                             message: messageText,
 
-                            parts,
+                            parts: finalParts,
 
                             badges,
 
@@ -460,7 +539,6 @@ console.log('messageParts:', JSON.stringify(event.messageParts, null, 2));
                     );
 
                 } catch (e) {
-
                     console.error(
                         'Ошибка обработки Twitch-сообщения:',
                         e.message || e
@@ -469,7 +547,6 @@ console.log('messageParts:', JSON.stringify(event.messageParts, null, 2));
             }
         );
 
-
         await eventSubListener.start();
 
         console.log(
@@ -477,7 +554,6 @@ console.log('messageParts:', JSON.stringify(event.messageParts, null, 2));
         );
 
     } catch (e) {
-
         console.error(
             'EventSub ошибка:',
             e.message || e
@@ -488,9 +564,7 @@ console.log('messageParts:', JSON.stringify(event.messageParts, null, 2));
 
 // ---------- YOUTUBE ----------
 function startYouTube() {
-
     if (!LiveChat || !YOUTUBE_CHANNEL_ID) {
-
         console.warn(
             'YouTube чат отключён.'
         );
@@ -498,39 +572,31 @@ function startYouTube() {
         return;
     }
 
-
     const youtubeChat =
         new LiveChat({
             channelId: YOUTUBE_CHANNEL_ID
         });
 
-
     youtubeChat.on(
         'start',
         (liveId) => {
-
             console.log(
                 `YouTube подключён. Live ID: ${liveId}`
             );
         }
     );
 
-
     youtubeChat.on(
         'chat',
         (chat) => {
-
             if (!mainWindow) {
                 return;
             }
 
-
             const parts = [];
             let plainText = '';
 
-
             for (const part of chat.message || []) {
-
                 const hasText =
                     part.text !== undefined &&
                     part.text !== null &&
@@ -539,9 +605,7 @@ function startYouTube() {
                 const hasUrl =
                     !!part.url;
 
-
                 if (hasText) {
-
                     parts.push({
                         type: 'text',
                         value: String(part.text)
@@ -551,7 +615,6 @@ function startYouTube() {
                         String(part.text);
 
                 } else if (hasUrl) {
-
                     parts.push({
                         type: 'emoji',
                         url: part.url,
@@ -566,17 +629,14 @@ function startYouTube() {
                 }
             }
 
-
             if (parts.length === 0) {
                 return;
             }
-
 
             const nickColor =
                 chat.isModerator
                     ? '#1e90ff'
                     : '#efeff1';
-
 
             mainWindow.webContents.send(
                 'chat-message',
@@ -600,11 +660,9 @@ function startYouTube() {
         }
     );
 
-
     youtubeChat.on(
         'error',
         (err) => {
-
             console.warn(
                 'YouTube ошибка:',
                 err.message || err
@@ -612,12 +670,10 @@ function startYouTube() {
         }
     );
 
-
     youtubeChat
         .start()
         .then(
             (ok) => {
-
                 if (!ok) {
                     console.warn(
                         'YouTube: стрим не запущен.'
@@ -627,7 +683,6 @@ function startYouTube() {
         )
         .catch(
             (err) => {
-
                 console.warn(
                     'YouTube: не подключиться —',
                     err.message || err
@@ -639,27 +694,19 @@ function startYouTube() {
 
 // ---------- ОКНО ----------
 function createWindow() {
-
     mainWindow =
         new BrowserWindow({
-
             width: 400,
             height: 700,
 
             frame: false,
-
             transparent: true,
-
             resizable: true,
-
             alwaysOnTop: true,
-
             skipTaskbar: false,
-
             hasShadow: false,
 
             webPreferences: {
-
                 preload:
                     path.join(
                         __dirname,
@@ -667,21 +714,17 @@ function createWindow() {
                     ),
 
                 contextIsolation: true,
-
                 nodeIntegration: false
             }
         });
-
 
     mainWindow.loadFile(
         'index.html'
     );
 
-
     mainWindow.on(
         'closed',
         () => {
-
             mainWindow = null;
         }
     );
@@ -692,18 +735,15 @@ function createWindow() {
 ipcMain.on(
     'window-close',
     () => {
-
         if (mainWindow) {
             mainWindow.close();
         }
     }
 );
 
-
 ipcMain.on(
     'window-minimize',
     () => {
-
         if (mainWindow) {
             mainWindow.minimize();
         }
@@ -714,56 +754,43 @@ ipcMain.on(
 // ---------- ЗАПУСК ----------
 app.whenReady().then(
     async () => {
-
         createWindow();
-
 
         // Загружаем Twurple
         await loadTwurple();
-
 
         // Twitch
         if (
             RefreshingAuthProvider &&
             ApiClient
         ) {
-
             try {
-
                 await setupAuth();
-
             } catch (e) {
-
                 console.error(
                     'Auth ошибка:',
                     e.message || e
                 );
             }
 
-
             if (apiClient) {
-
                 await loadTwitchAssets();
-
+                await load7TVAssets();     // <-- 7TV
                 await startTwitch();
             }
 
         } else {
-
             console.warn(
                 'Twitch-чат отключён: Twurple не загрузился.'
             );
         }
 
-
         // YouTube
         startYouTube();
-
 
         app.on(
             'activate',
             () => {
-
                 if (
                     BrowserWindow.getAllWindows()
                         .length === 0
@@ -775,11 +802,9 @@ app.whenReady().then(
     }
 );
 
-
 app.on(
     'window-all-closed',
     () => {
-
         if (process.platform !== 'darwin') {
             app.quit();
         }
