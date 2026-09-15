@@ -153,16 +153,54 @@
             vertical-align: middle;
         }
 
-        /* Смайлики и эмодзи */
+        /* ---------- СМАЙЛИКИ ---------- */
+        /* Обычный смайлик: фиксируем только высоту, ширину оставляем по пропорции */
         .chat-emote {
-    height: 24px;
-    width: auto;
-    max-width: 96px;         /* чтобы совсем широкие не растягивали строку */
-    vertical-align: middle;
-    margin: 0 1px;
-    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
-    object-fit: contain;
-}
+            height: 24px;
+            width: auto;
+            max-width: 96px;
+            vertical-align: middle;
+            margin: 0 1px;
+            filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
+            object-fit: contain;
+        }
+
+        /* ---------- ZERO-WIDTH / OVERLAY STACK ---------- */
+        /* Обёртка, внутри которой базовый смайлик задаёт размеры,
+           а остальные слои накладываются поверх. */
+        .emote-stack {
+            position: relative;
+            display: inline-block;
+            height: 24px;
+            vertical-align: middle;
+            margin: 0 1px;
+            line-height: 0;
+        }
+
+        /* Базовый (первый) смайлик — в потоке, задаёт размеры */
+        .emote-stack > .chat-emote:first-child {
+            position: relative;
+            display: block;
+            height: 24px;
+            width: auto;
+            max-width: none;
+            margin: 0;
+            vertical-align: top;
+            filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
+        }
+
+        /* Все overlay-слои — абсолютно позиционированы поверх базового */
+        .emote-stack > .chat-emote:not(:first-child) {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            pointer-events: none;
+            object-fit: contain;
+            filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
+        }
 
         .message .username {
             font-weight: 700;
@@ -183,23 +221,6 @@
             font-style: italic;
             text-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
         }
-        .emote-stack {
-    position: relative;
-    display: inline-block;
-    width: 24px;
-    height: 24px;
-    vertical-align: middle;
-    margin: 0 1px;
-}
-
-.emote-stack > .chat-emote {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-}
     </style>
 </head>
 <body>

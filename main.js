@@ -232,15 +232,15 @@ async function loadTwitchAssets() {
 // ---------- ЗАГРУЗКА 7TV СМАЙЛИКОВ ----------
 async function load7TVAssets() {
     try {
-        const addEmote = (emote) => {
+       const addEmote = (emote) => {
     const data = emote.data || {};
     const width = data.width || 32;
     const height = data.height || 32;
     const aspectRatio = data.aspect_ratio || (width / height) || 1;
 
-    // Zero-width определяется по visibility_simple, а не по flags
-    const visibility = data.visibility_simple || emote.visibility_simple || [];
-    const zeroWidth = visibility.includes('ZERO_WIDTH');
+    // Флаг Zero-Width лежит в data.flags, а не в emote.flags.
+    // 256 = 1 << 8 = ZERO_WIDTH
+    const zeroWidth = (data.flags & 256) === 256;
 
     if (zeroWidth) {
         console.log(`7TV ZERO-WIDTH: ${emote.name}`);

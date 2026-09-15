@@ -47,7 +47,7 @@ function createEmoteImg(part) {
     return img;
 }
 
-// ---------- РЕНДЕР ОДНОГО СООБЩЕНИЯ ----------
+// ---------- РЕНДЕР СООБЩЕНИЯ ----------
 window.chatAPI?.onMessage((data) => {
     if (!systemMessageRemoved) {
         const sysMsg = chatContainer.querySelector('.system-message');
@@ -89,15 +89,16 @@ window.chatAPI?.onMessage((data) => {
     textEl.className = 'text';
 
     if (Array.isArray(data.parts) && data.parts.length > 0) {
-        // Ссылка на последний добавленный в textEl элемент-emote (не обёртку, а сам img/stack)
-        let lastEmoteNode = null;
+        // Храним ссылку на "контейнер стека", если он уже открыт.
+        // Пока стек открыт, все overlay-смайлики идут в него,
+        // а любой обычный смайлик ЗАКРЫВАЕТ стек.
+        let currentStack = null;
 
         for (const part of data.parts) {
+            // --- Текст: закрываем стек, добавляем текстовый узел ---
             if (part.type === 'text') {
                 textEl.appendChild(document.createTextNode(part.value));
-                // Текст разрывает "цепочку" — следующий zero-width смайлик
-                // не должен накладываться на что-то через текст
-                lastEmoteNode = null;
+                currentStack = null;
                 continue;
             }
 
@@ -106,10 +107,10 @@ window.chatAPI?.onMessage((data) => {
 
             const img = createEmoteImg(part);
 
-            // === ZERO-WIDTH (OVERLAY) ===
-            if (part.zeroWidth && lastEmoteNode) {
-                // Если предыдущий смайлик уже в emote-stack — просто добавляем слой туда
-                if (lastEmoteNode.classList.contains('emote-stack')) {
+            if (part.zeroWidth) {
+                // === Overlay-смайлик (zero-width) ===
+                if (currentStack) {
+                    // Стек уже открыт — просто добавляем слой внутрь
                     img.style.position = 'absolute';
                     img.style.top = '0';
                     img.style.left = '0';
@@ -117,32 +118,37 @@ window.chatAPI?.onMessage((data) => {
                     img.style.height = '100%';
                     img.style.margin = '0';
                     img.style.pointerEvents = 'none';
-                    lastEmoteNode.appendChild(img);
+                    currentStack.appendChild(img);
                 } else {
-                    // Иначе — оборачиваем предыдущий смайлик в stack
-                    const stack = document.createElement('span');
-                    stack.className = 'emote-stack';
+                    // Стек ещё не открыт — оборачиваем ПРЕДЫДУЩИЙ смайлик
+                    const prev = textEl.lastElementChild;
+                    if (prev && prev.classList.contains('chat-emote')) {
+                        const stack = document.createElement('span');
+                        stack.className = 'emote-stack';
 
-                    lastEmoteNode.replaceWith(stack);
-                    stack.appendChild(lastEmoteNode);
+                        prev.replaceWith(stack);
+                        stack.appendChild(prev);
 
-                    img.style.position = 'absolute';
-                    img.style.top = '0';
-                    img.style.left = '0';
-                    img.style.width = '100%';
-                    img.style.height = '100%';
-                    img.style.margin = '0';
-                    img.style.pointerEvents = 'none';
+                        img.style.position = 'absolute';
+                        img.style.top = '0';
+                        img.style.left = '0';
+                        img.style.width = '100%';
+                        img.style.height = '100%';
+                        img.style.margin = '0';
+                        img.style.pointerEvents = 'none';
 
-                    stack.appendChild(img);
-                    lastEmoteNode = stack;
+                        stack.appendChild(img);
+                        currentStack = stack;
+                    } else {
+                        // Некуда накладывать — рендерим как обычный
+                        textEl.appendChild(img);
+                    }
                 }
-                continue;
+            } else {
+                // === Обычный смайлик: закрываем текущий стек ===
+                currentStack = null;
+                textEl.appendChild(img);
             }
-
-            // Обычный смайлик — добавляем как есть
-            textEl.appendChild(img);
-            lastEmoteNode = img;
         }
     } else {
         textEl.textContent = data.message || '';
@@ -159,8 +165,6 @@ window.chatAPI?.onMessage((data) => {
     const messages = chatContainer.querySelectorAll('.message');
     if (messages.length > 200) messages[0].remove();
 });
-
-
 
 
 
