@@ -1,6 +1,6 @@
 {
   "name": "multichat",
-  "version": "2.2.41",
+  "version": "2.2.42",
   "description": "Twitch + YouTube chat overlay",
   "main": "main.js",
   "scripts": {
@@ -32,11 +32,12 @@
       "package.json",
       "node_modules/**/*",
       ".env",
-      "tokens.json"
+      "tokens.json",
+      "build/*"
     ],
     "win": {
       "target": "nsis",
-      "icon": "./build/icon.ico"
+      "icon": "./build/icon.png"
     },
     "nsis": {
       "createDesktopShortcut": true,
