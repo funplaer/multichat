@@ -1,6 +1,6 @@
 {
   "name": "multichat",
-  "version": "1.0.0",
+  "version": "2.2.41",
   "description": "Twitch + YouTube chat overlay",
   "main": "main.js",
   "scripts": {
@@ -8,10 +8,11 @@
     "build": "electron-builder --win"
   },
   "dependencies": {
+    "@twurple/api": "^7.1.0",
     "@twurple/auth": "^7.1.0",
-"@twurple/api": "^7.1.0",
-"@twurple/eventsub-ws": "^7.1.0",
+    "@twurple/eventsub-ws": "^7.1.0",
     "dotenv": "^16.6.1",
+    "googleapis": "^181.0.0",
     "tmi.js": "^1.8.5",
     "youtube-chat-next": "^3.1.0"
   },
@@ -34,7 +35,8 @@
       "tokens.json"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "./build/icon.ico"
     },
     "nsis": {
       "createDesktopShortcut": true,

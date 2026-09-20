@@ -21,6 +21,81 @@
             flex-direction: column;
         }
 
+        /* ================= SPLASH ================= */
+        #splash {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(14, 14, 16, 0.55);
+            backdrop-filter: blur(2px);
+            border-radius: 8px;
+            animation: splashFadeOut 0.6s ease 3.5s forwards;
+            pointer-events: none;
+        }
+
+        @keyframes splashFadeOut {
+            to {
+                opacity: 0;
+                visibility: hidden;
+            }
+        }
+
+        /* Мордочка (минималистичная, белая обводка) */
+        #splash .uwu-face {
+            width: 220px;
+            height: 220px;
+            animation: uwuFloat 2.2s ease-in-out infinite;
+            filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.35));
+        }
+
+        @keyframes uwuFloat {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50%      { transform: translateY(-6px) scale(1.04); }
+        }
+
+        #splash .caption {
+            margin-top: 18px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #b9b9c0;
+            opacity: 0;
+            animation: captionIn 0.8s ease 0.4s forwards;
+            text-shadow: 0 0 6px rgba(145, 71, 255, 0.6);
+        }
+
+        #splash .caption span {
+            color: #eea942;
+        }
+
+        /* Версия под автором */
+        #splash .version {
+            margin-top: 6px;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 1px;
+            color: #6b6b75;
+            opacity: 0;
+            animation: versionIn 0.8s ease 0.7s forwards;
+            text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+        }
+
+        @keyframes captionIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes versionIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ================= TITLEBAR ================= */
         #titlebar {
             height: 24px;
             background: rgba(24, 24, 27, 0.25);
@@ -88,6 +163,52 @@
             color: #fff;
         }
 
+        /* ================= VIEWERS BAR ================= */
+        #viewers-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 14px;
+            margin: 6px 6px 0 6px;
+            flex-shrink: 0;
+            min-height: 20px;
+            -webkit-app-region: no-drag;
+            font-size: 11px;
+            font-weight: 600;
+            text-shadow: 0 0 4px rgba(0, 0, 0, 0.85);
+
+            background: rgba(14, 14, 16, 0.25);
+            border-radius: 8px;
+        }
+
+        .viewer-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: #efeff1;
+            user-select: none;
+        }
+
+        .viewer-item .viewer-label {
+            color: #b9b9c0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 10px;
+        }
+
+        .viewer-item .viewer-count {
+            font-weight: 700;
+        }
+
+        .viewer-item.twitch .viewer-count {
+            color: #9147ff;
+        }
+
+        .viewer-item.youtube .viewer-count {
+            color: #ff4d4d;
+        }
+
+        /* ================= CHAT ================= */
         #chat-container {
             flex: 1;
             overflow-y: auto;
@@ -138,7 +259,6 @@
             filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
         }
 
-        /* Баджи Twitch */
         .badges {
             display: inline-flex;
             align-items: center;
@@ -153,8 +273,6 @@
             vertical-align: middle;
         }
 
-        /* ---------- СМАЙЛИКИ ---------- */
-        /* Обычный смайлик: фиксируем только высоту, ширину оставляем по пропорции */
         .chat-emote {
             height: 24px;
             width: auto;
@@ -165,9 +283,6 @@
             object-fit: contain;
         }
 
-        /* ---------- ZERO-WIDTH / OVERLAY STACK ---------- */
-        /* Обёртка, внутри которой базовый смайлик задаёт размеры,
-           а остальные слои накладываются поверх. */
         .emote-stack {
             position: relative;
             display: inline-block;
@@ -177,7 +292,6 @@
             line-height: 0;
         }
 
-        /* Базовый (первый) смайлик — в потоке, задаёт размеры */
         .emote-stack > .chat-emote:first-child {
             position: relative;
             display: block;
@@ -189,7 +303,6 @@
             filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
         }
 
-        /* Все overlay-слои — абсолютно позиционированы поверх базового */
         .emote-stack > .chat-emote:not(:first-child) {
             position: absolute;
             top: 0;
@@ -224,6 +337,60 @@
     </style>
 </head>
 <body>
+    <!-- ============ SPLASH ============ -->
+    <div id="splash">
+        <svg class="uwu-face" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" fill="none">
+            <!-- Ушки -->
+            <path d="M45 95 L30 35 L90 70 Z"
+                  fill="none" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/>
+            <path d="M52 88 L42 48 L82 72 Z"
+                  fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" opacity="0.7"/>
+
+            <path d="M155 95 L170 35 L110 70 Z"
+                  fill="none" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/>
+            <path d="M148 88 L158 48 L118 72 Z"
+                  fill="none" stroke="#ffffff" stroke-width="3" stroke-linejoin="round" opacity="0.7"/>
+
+            <!-- Голова -->
+            <ellipse cx="100" cy="120" rx="72" ry="58"
+                     fill="none" stroke="#ffffff" stroke-width="5"/>
+
+            <!-- Закрытые глазки (дуги) -->
+            <path d="M62 118 Q74 106 86 118"
+                  stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+            <path d="M114 118 Q126 106 138 118"
+                  stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+
+            <!-- Носик -->
+            <path d="M94 138 L106 138 L100 146 Z"
+                  fill="none" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>
+
+            <!-- Ротик (две дуги) -->
+            <path d="M100 146 Q92 156 84 150"
+                  stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+            <path d="M100 146 Q108 156 116 150"
+                  stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+
+            <!-- Усы: слева -->
+            <g stroke="#ffffff" stroke-width="3" stroke-linecap="round">
+                <line x1="60" y1="140" x2="20" y2="134"/>
+                <line x1="60" y1="146" x2="18" y2="146"/>
+                <line x1="60" y1="152" x2="20" y2="158"/>
+            </g>
+
+            <!-- Усы: справа -->
+            <g stroke="#ffffff" stroke-width="3" stroke-linecap="round">
+                <line x1="140" y1="140" x2="180" y2="134"/>
+                <line x1="140" y1="146" x2="182" y2="146"/>
+                <line x1="140" y1="152" x2="180" y2="158"/>
+            </g>
+        </svg>
+
+        <div class="caption">created by <span>funplaer</span></div>
+        <div id="app-version" class="version"></div>
+    </div>
+
+    <!-- ============ TITLEBAR ============ -->
     <div id="titlebar">
         <span class="title">Multichat</span>
         <div class="controls">
@@ -232,6 +399,19 @@
         </div>
     </div>
 
+    <!-- ============ VIEWERS BAR ============ -->
+    <div id="viewers-bar">
+        <span id="twitch-viewers" class="viewer-item twitch" style="display:none;">
+            <span class="viewer-label">Twitch</span>
+            <span class="viewer-count">—</span>
+        </span>
+        <span id="youtube-viewers" class="viewer-item youtube" style="display:none;">
+            <span class="viewer-label">YouTube</span>
+            <span class="viewer-count">—</span>
+        </span>
+    </div>
+
+    <!-- ============ CHAT ============ -->
     <div id="chat-container">
         <div class="system-message">Ожидание сообщений...</div>
     </div>

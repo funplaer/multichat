@@ -1,8 +1,9 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
 const fs = require('fs');
+const { google } = require('googleapis');
 
 process.on('uncaughtException', (err) => {
     console.error('UNCAUGHT:', err);
@@ -16,6 +17,11 @@ process.on('unhandledRejection', (err) => {
 // ---------- YOUTUBE CHAT ----------
 let LiveChat;
 
+
+// ---------- VERSION ----------
+ipcMain.handle('get-version', () => {
+    return app.getVersion();
+});
 try {
     ({ LiveChat } = require('youtube-chat-next'));
     console.log('youtube-chat-next OK');
@@ -62,13 +68,111 @@ const TOKEN_PATH = path.join(__dirname, 'tokens.json');
 let mainWindow = null;
 
 
+// ---------- YOUTUBE VIEWERS STATE ----------
+let youtubeOAuth2Client = null;
+let youtubeViewersInterval = null;
+let currentYouTubeLiveId = null;
+let youtubeViewersFailCount = 0;
+
+
+// ---------- WINDOW STATE ----------
+let WINDOW_STATE_PATH = null;
+
+function loadWindowState() {
+    try {
+        if (WINDOW_STATE_PATH && fs.existsSync(WINDOW_STATE_PATH)) {
+            const raw = fs.readFileSync(WINDOW_STATE_PATH, 'utf-8');
+            const state = JSON.parse(raw);
+
+            if (
+                Number.isFinite(state.width) &&
+                Number.isFinite(state.height) &&
+                (state.x === undefined || Number.isFinite(state.x)) &&
+                (state.y === undefined || Number.isFinite(state.y))
+            ) {
+                return state;
+            }
+        }
+    } catch (e) {
+        console.warn('Не удалось прочитать window-state.json:', e.message);
+    }
+
+    return { width: 400, height: 700, x: undefined, y: undefined, isMaximized: false };
+}
+
+let saveTimeout = null;
+
+function saveWindowState() {
+    if (!mainWindow) return;
+
+    try {
+        const isMaximized = mainWindow.isMaximized();
+
+        const bounds = isMaximized
+            ? mainWindow.getNormalBounds()
+            : mainWindow.getBounds();
+
+        const state = {
+            width: bounds.width,
+            height: bounds.height,
+            x: bounds.x,
+            y: bounds.y,
+            isMaximized
+        };
+
+        if (WINDOW_STATE_PATH) {
+            fs.writeFileSync(
+                WINDOW_STATE_PATH,
+                JSON.stringify(state, null, 4),
+                'utf-8'
+            );
+        }
+    } catch (e) {
+        console.warn('Не удалось сохранить window-state.json:', e.message);
+    }
+}
+
+function saveWindowStateDebounced() {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveWindowState, 300);
+}
+
+
 // ---------- КАРТЫ СМАЙЛИКОВ И БАДЖЕЙ ----------
-let emoteMap = new Map();      // Twitch emoteId -> url
-let badgeMap = new Map();      // Twitch "set:version" -> url
-let sevenTVMap = new Map();  // 7TV "emoteName" -> url
+let emoteMap = new Map();
+let badgeMap = new Map();
+let sevenTVMap = new Map();
 
 
-// ---------- AUTH ----------
+// ---------- YOUTUBE OAUTH ----------
+function setupYouTubeOAuth() {
+    const clientId = process.env.YOUTUBE_CLIENT_ID;
+    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+    const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN;
+
+    if (!clientId || !clientSecret || !refreshToken) {
+        console.warn('YouTube API: YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN не заданы. Счётчик зрителей YouTube отключён.');
+        return null;
+    }
+
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+
+    oauth2Client.setCredentials({
+        refresh_token: refreshToken
+    });
+
+    oauth2Client.on('tokens', (tokens) => {
+        if (tokens.refresh_token) {
+            console.log('YouTube: получен новый refresh_token');
+        }
+    });
+
+    console.log('YouTube OAuth: клиент создан');
+    return oauth2Client;
+}
+
+
+// ---------- AUTH (TWITCH) ----------
 let authProvider = null;
 let apiClient = null;
 let authenticatedUserId = null;
@@ -163,7 +267,7 @@ async function loadTwitchAssets() {
 
         const broadcasterId = user.id;
 
-        // ---------- GLOBAL EMOTES ----------
+        // GLOBAL EMOTES
         const globalEmotes = await apiClient.chat.getGlobalEmotes();
 
         for (const emote of globalEmotes) {
@@ -173,7 +277,7 @@ async function loadTwitchAssets() {
             );
         }
 
-        // ---------- CHANNEL EMOTES ----------
+        // CHANNEL EMOTES
         const channelEmotes =
             await apiClient.chat.getChannelEmotes(broadcasterId);
 
@@ -188,7 +292,7 @@ async function loadTwitchAssets() {
             `Загружено смайликов Twitch: ${emoteMap.size}`
         );
 
-        // ---------- GLOBAL BADGES ----------
+        // GLOBAL BADGES
         const globalBadges =
             await apiClient.chat.getGlobalBadges();
 
@@ -201,7 +305,7 @@ async function loadTwitchAssets() {
             }
         }
 
-        // ---------- CHANNEL BADGES ----------
+        // CHANNEL BADGES
         const channelBadges =
             await apiClient.chat.getChannelBadges(
                 broadcasterId
@@ -232,32 +336,26 @@ async function loadTwitchAssets() {
 // ---------- ЗАГРУЗКА 7TV СМАЙЛИКОВ ----------
 async function load7TVAssets() {
     try {
-       const addEmote = (emote) => {
-    const data = emote.data || {};
-    const width = data.width || 32;
-    const height = data.height || 32;
-    const aspectRatio = data.aspect_ratio || (width / height) || 1;
+        const addEmote = (emote) => {
+            const data = emote.data || {};
+            const width = data.width || 32;
+            const height = data.height || 32;
+            const aspectRatio = data.aspect_ratio || (width / height) || 1;
 
-    // Флаг Zero-Width лежит в data.flags, а не в emote.flags.
-    // 256 = 1 << 8 = ZERO_WIDTH
-    const zeroWidth = (data.flags & 256) === 256;
+            const zeroWidth = (data.flags & 256) === 256;
 
-    if (zeroWidth) {
-        console.log(`7TV ZERO-WIDTH: ${emote.name}`);
-    }
+            const url = `https://cdn.7tv.app/emote/${emote.id}/2x.webp`;
 
-    const url = `https://cdn.7tv.app/emote/${emote.id}/2x.webp`;
+            sevenTVMap.set(emote.name, {
+                url,
+                width,
+                height,
+                aspectRatio,
+                zeroWidth
+            });
+        };
 
-    sevenTVMap.set(emote.name, {
-        url,
-        width,
-        height,
-        aspectRatio,
-        zeroWidth
-    });
-};
-
-        // --- Глобальные смайлики 7TV ---
+        // Глобальные смайлики 7TV
         const globalRes = await fetch('https://7tv.io/v3/emote-sets/global');
         if (globalRes.ok) {
             const globalData = await globalRes.json();
@@ -267,7 +365,7 @@ async function load7TVAssets() {
         }
         console.log(`7TV: глобальных смайликов — ${sevenTVMap.size}`);
 
-        // --- Канальные смайлики 7TV ---
+        // Канальные смайлики 7TV
         if (apiClient) {
             const user = await apiClient.users.getUserByName(TWITCH_CHANNEL);
             if (user) {
@@ -306,7 +404,6 @@ function buildTwitchParts(parts) {
                 type: 'text',
                 value: part.text || ''
             });
-
             continue;
         }
 
@@ -318,7 +415,6 @@ function buildTwitchParts(parts) {
                     type: 'text',
                     value: part.text || ''
                 });
-
                 continue;
             }
 
@@ -331,7 +427,6 @@ function buildTwitchParts(parts) {
                 url,
                 alt: part.text || ''
             });
-
             continue;
         }
 
@@ -340,7 +435,6 @@ function buildTwitchParts(parts) {
                 type: 'text',
                 value: part.text || ''
             });
-
             continue;
         }
 
@@ -352,7 +446,6 @@ function buildTwitchParts(parts) {
                     alt: part.text || ''
                 });
             }
-
             continue;
         }
 
@@ -368,8 +461,7 @@ function buildTwitchParts(parts) {
 }
 
 
-// ---------- ПОДСТАНОВКА 7TV СМАЙЛИКОВ В ТЕКСТ ----------
-// Проходим по текстовым частям и заменяем слова, найденные в sevenTVMap
+// ---------- ПОДСТАНОВКА 7TV СМАЙЛИКОВ ----------
 function apply7TVEmotes(parts) {
     if (!Array.isArray(parts) || parts.length === 0) {
         return parts;
@@ -394,25 +486,21 @@ function apply7TVEmotes(parts) {
 
             const tv = sevenTVMap.get(token);
 
-if (tv) {
-    // ЛОГ
-    console.log(`7TV MATCH: ${token} | zeroWidth=${tv.zeroWidth}`);
+            if (tv) {
+                if (textBuffer && !/^\s+$/.test(textBuffer)) {
+                    result.push({ type: 'text', value: textBuffer });
+                }
+                textBuffer = '';
 
-    if (textBuffer) {
-        result.push({ type: 'text', value: textBuffer });
-        textBuffer = '';
-    }
-
-    result.push({
-        type: 'emote',
-        url: tv.url,
-        alt: token,
-        aspectRatio: tv.aspectRatio,
-        naturalWidth: tv.width,
-        naturalHeight: tv.height,
-        zeroWidth: tv.zeroWidth
-    });
-
+                result.push({
+                    type: 'emote',
+                    url: tv.url,
+                    alt: token,
+                    aspectRatio: tv.aspectRatio,
+                    naturalWidth: tv.width,
+                    naturalHeight: tv.height,
+                    zeroWidth: tv.zeroWidth
+                });
             } else {
                 textBuffer += token;
             }
@@ -465,7 +553,6 @@ async function startTwitch() {
         console.warn(
             'Twitch EventSub не запущен: отсутствуют зависимости.'
         );
-
         return;
     }
 
@@ -479,7 +566,6 @@ async function startTwitch() {
             console.error(
                 `Канал ${TWITCH_CHANNEL} не найден`
             );
-
             return;
         }
 
@@ -500,18 +586,13 @@ async function startTwitch() {
                 try {
                     const messageText = event.messageText || '';
 
-                    // 1) Собираем Twitch-части
                     const twitchParts = buildTwitchParts(event.messageParts);
-
-                    // 2) Прогоняем через 7TV-фильтр
                     const parts = apply7TVEmotes(twitchParts);
 
-                    // 3) Fallback: если parts пуст, но текст есть — отдаём текст
                     const finalParts = parts.length > 0
                         ? parts
                         : [{ type: 'text', value: messageText }];
 
-                    // 4) Баджи
                     const badges = buildTwitchBadges(event.badges);
 
                     mainWindow.webContents.send(
@@ -562,13 +643,132 @@ async function startTwitch() {
 }
 
 
-// ---------- YOUTUBE ----------
+// ---------- СЧЁТЧИК ЗРИТЕЛЕЙ TWITCH ----------
+let twitchViewersInterval = null;
+
+async function updateTwitchViewers() {
+    if (!apiClient || !mainWindow) return;
+
+    try {
+        const stream = await apiClient.streams.getStreamByUserName(TWITCH_CHANNEL);
+        const viewers = stream ? stream.viewers : null;
+
+        if (!mainWindow) return;
+
+        mainWindow.webContents.send('viewers-update', {
+            platform: 'twitch',
+            viewers
+        });
+
+        if (viewers !== null) {
+           // console.log(`Twitch viewers: ${viewers}`);
+        }
+    } catch (e) {
+        console.warn('Ошибка получения зрителей Twitch:', e.message);
+    }
+}
+
+function startTwitchViewersCounter() {
+    updateTwitchViewers();
+    twitchViewersInterval = setInterval(updateTwitchViewers, 60 * 1000);
+}
+
+
+// ---------- СЧЁТЧИК ЗРИТЕЛЕЙ YOUTUBE ----------
+async function updateYouTubeViewers() {
+    if (!youtubeOAuth2Client || !currentYouTubeLiveId || !mainWindow) return;
+
+    try {
+        const youtube = google.youtube({
+            version: 'v3',
+            auth: youtubeOAuth2Client
+        });
+
+        const response = await youtube.videos.list({
+            part: 'liveStreamingDetails',
+            id: currentYouTubeLiveId
+        });
+
+        const items = response.data.items || [];
+        if (items.length === 0) {
+            console.log('YouTube viewers: видео не найдено');
+            return;
+        }
+
+        const liveDetails = items[0].liveStreamingDetails;
+        if (!liveDetails) {
+            console.log('YouTube viewers: нет данных liveStreamingDetails');
+            return;
+        }
+
+        const viewers = liveDetails.concurrentViewers !== undefined
+            ? parseInt(liveDetails.concurrentViewers, 10)
+            : null;
+
+        if (viewers !== null && !isNaN(viewers)) {
+            //console.log(`YouTube viewers: ${viewers}`);
+            youtubeViewersFailCount = 0;
+
+            mainWindow.webContents.send('viewers-update', {
+                platform: 'youtube',
+                viewers
+            });
+        } else {
+            mainWindow.webContents.send('viewers-update', {
+                platform: 'youtube',
+                viewers: null
+            });
+        }
+    } catch (e) {
+        youtubeViewersFailCount++;
+
+        if (youtubeViewersFailCount <= 3 || youtubeViewersFailCount % 10 === 0) {
+            console.warn('YouTube viewers error:', e.message || e);
+        }
+    }
+}
+
+function startYouTubeViewersCounter(liveId) {
+    if (youtubeViewersInterval) {
+        clearInterval(youtubeViewersInterval);
+        youtubeViewersInterval = null;
+    }
+
+    currentYouTubeLiveId = liveId;
+    youtubeViewersFailCount = 0;
+
+    updateYouTubeViewers();
+
+    youtubeViewersInterval = setInterval(updateYouTubeViewers, 60 * 1000);
+
+    console.log(`YouTube viewers counter started for liveId: ${liveId}`);
+}
+
+function stopYouTubeViewersCounter() {
+    if (youtubeViewersInterval) {
+        clearInterval(youtubeViewersInterval);
+        youtubeViewersInterval = null;
+    }
+
+    currentYouTubeLiveId = null;
+
+    if (mainWindow) {
+        mainWindow.webContents.send('viewers-update', {
+            platform: 'youtube',
+            viewers: null
+        });
+    }
+
+    console.log('YouTube viewers counter stopped');
+}
+
+
+// ---------- YOUTUBE CHAT ----------
 function startYouTube() {
     if (!LiveChat || !YOUTUBE_CHANNEL_ID) {
         console.warn(
             'YouTube чат отключён.'
         );
-
         return;
     }
 
@@ -583,6 +783,12 @@ function startYouTube() {
             console.log(
                 `YouTube подключён. Live ID: ${liveId}`
             );
+
+            if (youtubeOAuth2Client) {
+                startYouTubeViewersCounter(liveId);
+            } else {
+                console.warn('YouTube viewers: OAuth-клиент не настроен');
+            }
         }
     );
 
@@ -670,6 +876,14 @@ function startYouTube() {
         }
     );
 
+    youtubeChat.on(
+        'end',
+        (reason) => {
+            console.log('YouTube чат завершён:', reason);
+            stopYouTubeViewersCounter();
+        }
+    );
+
     youtubeChat
         .start()
         .then(
@@ -694,10 +908,14 @@ function startYouTube() {
 
 // ---------- ОКНО ----------
 function createWindow() {
+    const state = loadWindowState();
+
     mainWindow =
         new BrowserWindow({
-            width: 400,
-            height: 700,
+            width: state.width,
+            height: state.height,
+            x: state.x,
+            y: state.y,
 
             frame: false,
             transparent: true,
@@ -705,7 +923,7 @@ function createWindow() {
             alwaysOnTop: true,
             skipTaskbar: false,
             hasShadow: false,
-
+            icon: path.join(__dirname, 'build', 'icon.ico'),
             webPreferences: {
                 preload:
                     path.join(
@@ -718,9 +936,19 @@ function createWindow() {
             }
         });
 
+    if (state.isMaximized) {
+        mainWindow.maximize();
+    }
+
     mainWindow.loadFile(
         'index.html'
     );
+
+    mainWindow.on('resize', saveWindowStateDebounced);
+    mainWindow.on('move', saveWindowStateDebounced);
+    mainWindow.on('maximize', saveWindowState);
+    mainWindow.on('unmaximize', saveWindowState);
+    mainWindow.on('close', saveWindowState);
 
     mainWindow.on(
         'closed',
@@ -754,12 +982,24 @@ ipcMain.on(
 // ---------- ЗАПУСК ----------
 app.whenReady().then(
     async () => {
+        WINDOW_STATE_PATH = path.join(
+            app.getPath('userData'),
+            'window-state.json'
+        );
+
         createWindow();
 
-        // Загружаем Twurple
+        globalShortcut.register('F12', () => {
+            if (mainWindow) {
+                mainWindow.webContents.toggleDevTools();
+            }
+        });
+
+        // YouTube OAuth
+        youtubeOAuth2Client = setupYouTubeOAuth();
+
         await loadTwurple();
 
-        // Twitch
         if (
             RefreshingAuthProvider &&
             ApiClient
@@ -775,8 +1015,10 @@ app.whenReady().then(
 
             if (apiClient) {
                 await loadTwitchAssets();
-                await load7TVAssets();     // <-- 7TV
+                await load7TVAssets();
                 await startTwitch();
+
+                startTwitchViewersCounter();
             }
 
         } else {
@@ -785,7 +1027,6 @@ app.whenReady().then(
             );
         }
 
-        // YouTube
         startYouTube();
 
         app.on(
@@ -799,6 +1040,21 @@ app.whenReady().then(
                 }
             }
         );
+    }
+);
+
+app.on(
+    'will-quit',
+    () => {
+        globalShortcut.unregisterAll();
+
+        if (twitchViewersInterval) {
+            clearInterval(twitchViewersInterval);
+        }
+
+        if (youtubeViewersInterval) {
+            clearInterval(youtubeViewersInterval);
+        }
     }
 );
 

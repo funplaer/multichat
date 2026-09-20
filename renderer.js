@@ -1,6 +1,19 @@
 const chatContainer = document.getElementById('chat-container');
 let systemMessageRemoved = false;
 
+// ---------- SPLASH ----------
+let splashDone = false;
+
+const splashEl = document.getElementById('splash');
+if (splashEl) {
+    setTimeout(() => {
+        splashDone = true;
+    }, 4100);
+} else {
+    splashDone = true;
+}
+
+
 const LOGOS = {
     twitch: `
         <svg class="platform-logo" style="color:#9147ff" viewBox="0 0 2400 2800" xmlns="http://www.w3.org/2000/svg" fill="currentColor" aria-hidden="true">
@@ -49,6 +62,10 @@ function createEmoteImg(part) {
 
 // ---------- РЕНДЕР СООБЩЕНИЯ ----------
 window.chatAPI?.onMessage((data) => {
+    if (!splashDone) {
+        return;
+    }
+
     if (!systemMessageRemoved) {
         const sysMsg = chatContainer.querySelector('.system-message');
         if (sysMsg) sysMsg.remove();
@@ -58,11 +75,9 @@ window.chatAPI?.onMessage((data) => {
     const messageEl = document.createElement('div');
     messageEl.className = 'message';
 
-    // Логотип
     const logoWrap = document.createElement('span');
     logoWrap.innerHTML = LOGOS[data.platform] || LOGOS.twitch;
 
-    // Баджи
     const badgesEl = document.createElement('span');
     badgesEl.className = 'badges';
     if (Array.isArray(data.badges)) {
@@ -78,27 +93,24 @@ window.chatAPI?.onMessage((data) => {
         }
     }
 
-    // Ник
     const usernameEl = document.createElement('span');
     usernameEl.className = 'username';
     usernameEl.style.color = data.color;
     usernameEl.textContent = data.username + ':';
 
-    // Текст сообщения
     const textEl = document.createElement('span');
     textEl.className = 'text';
 
     if (Array.isArray(data.parts) && data.parts.length > 0) {
-        // Храним ссылку на "контейнер стека", если он уже открыт.
-        // Пока стек открыт, все overlay-смайлики идут в него,
-        // а любой обычный смайлик ЗАКРЫВАЕТ стек.
         let currentStack = null;
 
         for (const part of data.parts) {
-            // --- Текст: закрываем стек, добавляем текстовый узел ---
             if (part.type === 'text') {
+                const isWhitespace = /^\s+$/.test(part.value);
                 textEl.appendChild(document.createTextNode(part.value));
-                currentStack = null;
+                if (!isWhitespace) {
+                    currentStack = null;
+                }
                 continue;
             }
 
@@ -108,9 +120,7 @@ window.chatAPI?.onMessage((data) => {
             const img = createEmoteImg(part);
 
             if (part.zeroWidth) {
-                // === Overlay-смайлик (zero-width) ===
                 if (currentStack) {
-                    // Стек уже открыт — просто добавляем слой внутрь
                     img.style.position = 'absolute';
                     img.style.top = '0';
                     img.style.left = '0';
@@ -120,8 +130,8 @@ window.chatAPI?.onMessage((data) => {
                     img.style.pointerEvents = 'none';
                     currentStack.appendChild(img);
                 } else {
-                    // Стек ещё не открыт — оборачиваем ПРЕДЫДУЩИЙ смайлик
                     const prev = textEl.lastElementChild;
+
                     if (prev && prev.classList.contains('chat-emote')) {
                         const stack = document.createElement('span');
                         stack.className = 'emote-stack';
@@ -140,12 +150,10 @@ window.chatAPI?.onMessage((data) => {
                         stack.appendChild(img);
                         currentStack = stack;
                     } else {
-                        // Некуда накладывать — рендерим как обычный
                         textEl.appendChild(img);
                     }
                 }
             } else {
-                // === Обычный смайлик: закрываем текущий стек ===
                 currentStack = null;
                 textEl.appendChild(img);
             }
@@ -166,6 +174,37 @@ window.chatAPI?.onMessage((data) => {
     if (messages.length > 200) messages[0].remove();
 });
 
+// ---------- СЧЁТЧИК ЗРИТЕЛЕЙ ----------
+window.chatAPI?.onViewersUpdate((data) => {
+    const elId = data.platform === 'twitch'
+        ? 'twitch-viewers'
+        : data.platform === 'youtube'
+            ? 'youtube-viewers'
+            : null;
 
+    if (!elId) return;
 
-//UC8h4WuhsHwArEFSV0M5DXdw
+    const el = document.getElementById(elId);
+    if (!el) return;
+
+    const countEl = el.querySelector('.viewer-count');
+
+    if (data.viewers !== null && data.viewers !== undefined) {
+        if (countEl) countEl.textContent = data.viewers;
+        el.style.display = 'inline-flex';
+    } else {
+        el.style.display = 'none';
+    }
+});
+// ---------- VERSION ----------
+(async () => {
+    try {
+        const version = await window.chatAPI?.getVersion();
+        const el = document.getElementById('app-version');
+        if (el && version) {
+            el.textContent = `v${version}`;
+        }
+    } catch (e) {
+        console.warn('Не удалось получить версию:', e.message);
+    }
+})();
